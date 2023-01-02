@@ -4,3 +4,12 @@ Wrapper to instrument Go binaries for AFL++ using gccgo and afl-gcc-fast with pe
 
 **WARNING: Highly experimental!**
 
+example.go:
+
+```go
+package main
+
+func Fuzz(data []byte) {
+	// Call function to fuzz
+}
+```
