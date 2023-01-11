@@ -1,12 +1,15 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"os"
 	"os/exec"
 	"text/template"
 
 	_ "embed"
+
+	"golang.org/x/tools/go/packages"
 )
 
 //go:embed tmpl/main.go.tmpl
@@ -15,7 +18,34 @@ var tmplMainGo string
 //go:embed tmpl/main.c.tmpl
 var tmplMainC string
 
+var funcName = flag.String("func", "Fuzz", "name of the Fuzz function")
+
 func main() {
+	flag.Parse()
+	if *funcName == "" {
+		fmt.Println("Usage: go-afl-build -func FuncName")
+		flag.PrintDefaults()
+		os.Exit(1)
+	}
+
+	pkgName, err := findFuzzFunc()
+	if err != nil {
+		fmt.Printf("Error parsing package: %s\n", err)
+		os.Exit(1)
+	}
+
+	var pkgImport *packages.Package
+	if pkgName != `main` {
+		pkgs, err := packages.Load(nil)
+		if err != nil {
+			panic(err)
+		}
+		if len(pkgs) == 0 || pkgs[0].Name != pkgName {
+			panic(`could not load package ` + pkgName)
+		}
+		pkgImport = pkgs[0]
+	}
+
 	aflCC := os.Getenv(`AFL_CC`)
 	if aflCC == `` {
 		aflCC = `afl-gcc-fast`
@@ -26,7 +56,7 @@ func main() {
 	}
 
 	// Switch environment variables so that afl uses gccgo
-	err := os.Setenv(`AFL_CC`, gccGo)
+	err = os.Setenv(`AFL_CC`, gccGo)
 	if err != nil {
 		panic(err)
 	}
@@ -43,7 +73,15 @@ func main() {
 	mainGo, cleanupMainGo := createTempFile(`main.*.go`)
 	defer cleanupMainGo()
 
-	err = tmpl.Execute(mainGo, nil)
+	err = tmpl.Execute(mainGo, struct {
+		PkgImport *packages.Package
+		PkgName   string
+		FuncName  string
+	}{
+		PkgImport: pkgImport,
+		PkgName:   pkgName,
+		FuncName:  *funcName,
+	})
 	if err != nil {
 		panic(err)
 	}
@@ -52,7 +90,12 @@ func main() {
 	defer os.Remove(libFileName)
 	defer os.Remove(libFileName[:len(libFileName)-1] + `h`)
 
-	out, err := exec.Command(`go`, `build`, `-x`, `-compiler`, `gccgo`, `-buildmode`, `c-archive`, `-o`, libFileName).CombinedOutput()
+	args := []string{`build`, `-x`, `-compiler`, `gccgo`, `-buildmode`, `c-archive`, `-o`, libFileName}
+	if pkgName != `main` {
+		args = append(args, mainGo.Name())
+	}
+
+	out, err := exec.Command(`go`, args...).CombinedOutput()
 	if err != nil {
 		fmt.Println(string(out))
 		panic(err)
