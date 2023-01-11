@@ -1,0 +1,14 @@
+package main
+
+import (
+	"C"
+	"unsafe"
+)
+
+//export __FuzzAFL
+func __FuzzAFL(s *C.uchar, size C.int) {
+	data := (*[1 << 30]byte)(unsafe.Pointer(s))[:size:size]
+	Fuzz(data)
+}
+
+func main() {}

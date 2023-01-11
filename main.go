@@ -4,7 +4,16 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"text/template"
+
+	_ "embed"
 )
+
+//go:embed tmpl/main.go.tmpl
+var tmplMainGo string
+
+//go:embed tmpl/main.c.tmpl
+var tmplMainC string
 
 func main() {
 	aflCC := os.Getenv(`AFL_CC`)
@@ -26,64 +35,63 @@ func main() {
 		panic(err)
 	}
 
-	err = os.WriteFile(`go-afl-build.go`, []byte(`
-package main
+	tmpl, err := template.New(``).Parse(tmplMainGo)
+	if err != nil {
+		panic(err)
+	}
 
-import (
-	"C"
-	"unsafe"
-)
+	mainGo, cleanupMainGo := createTempFile(`main.*.go`)
+	defer cleanupMainGo()
 
-//export __FuzzAFL
-func __FuzzAFL(s *C.uchar, size C.int) {
-	data := (*[1 << 30]byte)(unsafe.Pointer(s))[:size:size]
-	Fuzz(data)
+	err = tmpl.Execute(mainGo, nil)
+	if err != nil {
+		panic(err)
+	}
+
+	libFileName := createEmptyFile(`afl.*.a`)
+	defer os.Remove(libFileName)
+	defer os.Remove(libFileName[:len(libFileName)-1] + `h`)
+
+	out, err := exec.Command(`go`, `build`, `-x`, `-compiler`, `gccgo`, `-buildmode`, `c-archive`, `-o`, libFileName).CombinedOutput()
+	if err != nil {
+		fmt.Println(string(out))
+		panic(err)
+	}
+
+	mainC, cleanupMainC := createTempFile(`main.*.c`)
+	defer cleanupMainC()
+
+	_, err = mainC.WriteString(tmplMainC)
+	if err != nil {
+		panic(err)
+	}
+
+	out, err = exec.Command(aflCC, `-o`, `afl`, mainC.Name(), libFileName).CombinedOutput()
+	if err != nil {
+		fmt.Println(string(out))
+		panic(err)
+	}
 }
 
-func main() {}`), 0o644)
+func createTempFile(pattern string) (*os.File, func()) {
+	tmpFile, err := os.CreateTemp(`.`, pattern)
+	if err != nil {
+		panic(err)
+	}
+	return tmpFile, func() {
+		_ = tmpFile.Close()
+		_ = os.Remove(tmpFile.Name())
+	}
+}
+
+func createEmptyFile(pattern string) string {
+	tmpFile, err := os.CreateTemp(`.`, pattern)
+	if err == nil {
+		err = tmpFile.Close()
+	}
 	if err != nil {
 		panic(err)
 	}
 
-	defer func() {
-		_ = os.Remove(`go-afl-build.go`)
-	}()
-
-	out, err := exec.Command(`go`, `build`, `-x`, `-compiler`, `gccgo`, `-buildmode`, `c-archive`, `-o`, `go-afl-build.a`).Output()
-	if err != nil {
-		fmt.Println(string(out))
-		panic(err)
-	}
-
-	defer func() {
-		_ = os.Remove(`go-afl-build.a`)
-		_ = os.Remove(`go-afl-build.h`)
-	}()
-
-	// https://github.com/AFLplusplus/AFLplusplus/blob/stable/instrumentation/README.persistent_mode.md
-	err = os.WriteFile(`go-afl-build.c`, []byte(`
-__AFL_FUZZ_INIT();
-int main() {
-#ifdef __AFL_HAVE_MANUAL_CONTROL
-  __AFL_INIT();
-#endif
-  unsigned char *buf = __AFL_FUZZ_TESTCASE_BUF;
-  while (__AFL_LOOP(1000)) {
-    int len = __AFL_FUZZ_TESTCASE_LEN;
-    __FuzzAFL(buf, len);
-  }
-}`), 0o644)
-	if err != nil {
-		panic(err)
-	}
-
-	defer func() {
-		_ = os.Remove(`go-afl-build.c`)
-	}()
-
-	out, err = exec.Command(aflCC, `-o`, `afl`, `go-afl-build.c`, `go-afl-build.a`).Output()
-	if err != nil {
-		fmt.Println(string(out))
-		panic(err)
-	}
+	return tmpFile.Name()
 }
