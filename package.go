@@ -6,9 +6,11 @@ import (
 	"go/parser"
 	"go/token"
 	"strings"
+
+	"golang.org/x/tools/go/packages"
 )
 
-func findFuzzFunc() (string, error) {
+func findPackageFunc() (string, error) {
 	// Parse the Go package
 	fset := token.NewFileSet()
 	pkgs, err := parser.ParseDir(fset, `.`, nil, 0)
@@ -30,4 +32,19 @@ func findFuzzFunc() (string, error) {
 		}
 	}
 	return ``, fmt.Errorf("fuzz function %s not found", *funcName)
+}
+
+func loadPackage(pkgName string) (*packages.Package, error) {
+	if pkgName == `main` {
+		return nil, nil
+	}
+
+	pkgs, err := packages.Load(nil)
+	if err != nil {
+		return nil, err
+	}
+	if len(pkgs) == 0 || pkgs[0].Name != pkgName {
+		return nil, fmt.Errorf(`could not load package %s`, pkgName)
+	}
+	return pkgs[0], nil
 }
