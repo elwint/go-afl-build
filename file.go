@@ -21,51 +21,33 @@ type mainGoData struct {
 	FuncName  string
 }
 
-func createMainGo(data mainGoData) (string, func()) {
-	tmpl, err := template.New(``).Parse(tmplMainGo)
+func createLibFile() (string, string, func()) {
+	libFile := createEmptyFile(`afl.*.a`)
+	libHeader := libFile[:len(libFile)-1] + `h`
+
+	return libFile, libHeader, func() {
+		os.Remove(libFile)
+		os.Remove(libHeader)
+	}
+}
+
+func createTemplate(tmplStr, pattern string, data any) (string, func()) {
+	tmpl, err := template.New(``).Parse(tmplStr)
 	panicOnError(err)
 
-	mainGo, cleanup := createTempFile(`main.*.go`)
-
-	err = tmpl.Execute(mainGo, data)
-	if err != nil {
-		cleanup()
-		panicOnError(err)
-	}
-
-	return mainGo.Name(), cleanup
-}
-
-func createLibFile() (string, func()) {
-	libFileName := createEmptyFile(`afl.*.a`)
-
-	return libFileName, func() {
-		os.Remove(libFileName)
-		os.Remove(libFileName[:len(libFileName)-1] + `h`)
-	}
-}
-
-func createMainC() (string, func()) {
-	mainC, cleanup := createTempFile(`main.*.c`)
-
-	_, err := mainC.WriteString(tmplMainC)
-	if err != nil {
-		cleanup()
-		panicOnError(err)
-	}
-
-	return mainC.Name(), cleanup
-}
-
-func createTempFile(pattern string) (*os.File, func()) {
 	tmpFile, err := os.CreateTemp(`.`, pattern)
+	panicOnError(err)
+	defer tmpFile.Close()
+
+	cleanup := func() { os.Remove(tmpFile.Name()) }
+
+	err = tmpl.Execute(tmpFile, data)
 	if err != nil {
+		cleanup()
 		panic(err)
 	}
-	return tmpFile, func() {
-		_ = tmpFile.Close()
-		_ = os.Remove(tmpFile.Name())
-	}
+
+	return tmpFile.Name(), cleanup
 }
 
 func createEmptyFile(pattern string) string {
@@ -73,9 +55,7 @@ func createEmptyFile(pattern string) string {
 	if err == nil {
 		err = tmpFile.Close()
 	}
-	if err != nil {
-		panic(err)
-	}
+	panicOnError(err)
 
 	return tmpFile.Name()
 }

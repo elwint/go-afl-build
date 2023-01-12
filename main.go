@@ -24,7 +24,7 @@ func main() {
 	handlePkgError(err)
 
 	// Create a temp main go file
-	mainGo, cleanupMainGo := createMainGo(mainGoData{
+	mainGo, cleanupMainGo := createTemplate(tmplMainGo, `main.*.go`, mainGoData{
 		PkgImport: pkgImport,
 		PkgName:   pkgName,
 		FuncName:  *funcName,
@@ -32,14 +32,14 @@ func main() {
 	defer cleanupMainGo()
 
 	// Create a temp library file
-	libFile, cleanupLibFile := createLibFile()
+	libFile, libHeader, cleanupLibFile := createLibFile()
 	defer cleanupLibFile()
 
 	// Build the library file using gccgo
 	buildLibFile(pkgName, mainGo, libFile)
 
 	// Create a temp main c file
-	mainC, cleanupMainC := createMainC()
+	mainC, cleanupMainC := createTemplate(tmplMainC, `main.*.c`, libHeader)
 	defer cleanupMainC()
 
 	// Compile with AFL++ compiler
