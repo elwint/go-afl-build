@@ -6,7 +6,10 @@ import (
 	"os"
 )
 
-var funcName = flag.String("func", "Fuzz", "name of the Fuzz function")
+var (
+	funcName   = flag.String("func", "Fuzz", "name of the Fuzz function")
+	outputFile = flag.String("o", "afl", "output file")
+)
 
 func main() {
 	flag.Parse()

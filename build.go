@@ -12,6 +12,6 @@ func buildLibFile(pkgName, mainGo, libFile string) {
 }
 
 func buildAFL(aflCC, mainC, libFile string) {
-	out, err := exec.Command(aflCC, `-o`, `afl`, mainC, libFile).CombinedOutput()
+	out, err := exec.Command(aflCC, `-o`, *outputFile, mainC, libFile).CombinedOutput()
 	handleCmdError(err, out)
 }
